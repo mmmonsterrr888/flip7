@@ -1,0 +1,879 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flip 7 scorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Bungee&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E6F0EC; --surface:#FFFFFF; --raised:#F1F7F5; --ink:#0F2E2A; --muted:#4F6F6A; --line:#C6DBD5;
+  --felt:#0E5C54; --felt-ink:#F4FBF8; --sun:#F4B400; --sun-ink:#382800; --coral:#CF4027; --coral-ink:#FFFFFF;
+  --card:#FFFDF7; --card-edge:#D6CFBF; --focus:#E0A100; --num-l:36%;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#07231F; --surface:#0D322D; --raised:#113A35; --ink:#E7F3EF; --muted:#94B8B1; --line:#21504A;
+    --felt:#14806F; --felt-ink:#F4FBF8; --card:#FBF7EE; --card-edge:#A89F8B; --focus:#F4B400;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#07231F; --surface:#0D322D; --raised:#113A35; --ink:#E7F3EF; --muted:#94B8B1; --line:#21504A;
+  --felt:#14806F; --felt-ink:#F4FBF8; --card:#FBF7EE; --card-edge:#A89F8B; --focus:#F4B400;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size:17px; line-height:1.45; font-variant-numeric:tabular-nums;
+}
+img{max-width:100%}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+[hidden]{display:none !important}
+
+.wrap{max-width:680px;margin:0 auto;padding:max(16px,env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom))}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:8px 0 18px}
+h1{font-family:"Bungee","Arial Black",Impact,sans-serif;font-weight:400;font-size:clamp(30px,8vw,44px);line-height:1;margin:0;letter-spacing:.5px}
+h1 .seven{display:inline-block;background:var(--sun);color:var(--sun-ink);padding:0 .18em;border-radius:.14em;transform:rotate(-6deg);margin-left:.08em}
+.meta{margin:6px 0 0;color:var(--muted);font-size:15px}
+h2{font-size:21px;font-weight:800;margin:0 0 10px}
+h3{font-size:22px;font-weight:800;margin:0}
+h4{font-size:15px;font-weight:600;color:var(--muted);margin:18px 0 8px}
+
+.btn{border:0;border-radius:14px;padding:13px 18px;font-weight:700;line-height:1.2;min-height:48px}
+.primary{background:var(--felt);color:var(--felt-ink)}
+.primary:disabled{opacity:.45;cursor:not-allowed}
+.ghost{background:transparent;border:1.5px solid var(--line);color:var(--ink)}
+.small{padding:8px 12px;min-height:38px;border-radius:10px;font-size:15px;font-weight:600}
+.danger{color:var(--coral);border-color:currentColor}
+.link{background:none;border:0;padding:6px 2px;color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:18px;margin-bottom:16px}
+
+/* standings */
+.standings{list-style:none;margin:0;padding:0}
+.standings li{display:grid;grid-template-columns:1fr auto;gap:2px 14px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.standings li:last-child{border-bottom:0}
+.standings .pname{font-weight:700;font-size:18px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.standings .total{grid-column:2;grid-row:1 / span 3;font-family:"Bungee","Arial Black",Impact,sans-serif;font-size:34px;line-height:1}
+.standings .lead .total{color:var(--felt)}
+.bar{height:8px;border-radius:99px;background:var(--raised);overflow:hidden;border:1px solid var(--line)}
+.bar span{display:block;height:100%;background:var(--felt);border-radius:99px}
+.standings .lead .bar span{background:var(--sun)}
+.standings .sub{grid-column:1;color:var(--muted);font-size:14px}
+.winner{background:var(--sun);color:var(--sun-ink);border-radius:16px;padding:14px 16px;margin-bottom:14px;font-weight:700;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.winner .btn{background:var(--sun-ink);color:var(--sun)}
+
+/* scan */
+.scan{display:grid;gap:8px;margin-bottom:6px}
+.scan-btn{display:flex;align-items:center;justify-content:center;gap:10px;font-size:19px;padding:18px;border-radius:18px}
+.scan-btn svg{width:26px;height:26px;flex:none}
+.scan-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;color:var(--muted);font-size:15px}
+.status{margin:4px 0 0;font-size:15px;min-height:1px}
+.status.ok{color:var(--felt)}
+.status.err{color:var(--coral)}
+.status.work::before{content:"";display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;margin-right:8px;vertical-align:-1px;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.note{color:var(--muted);font-size:15px;margin:0 0 8px}
+
+/* hands */
+.hands{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:12px}
+.hand{background:var(--raised);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+.hand-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.hand-top .pname{font-weight:700;font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hscore{font-family:"Bungee","Arial Black",Impact,sans-serif;font-size:28px;line-height:1}
+.is-bust .hscore{color:var(--coral)}
+.hand-meta{color:var(--muted);font-size:14px;margin:6px 0 10px}
+.chips + .hand-btns{margin-top:10px}
+.hand-btns{display:flex;gap:8px;flex-wrap:wrap}
+.hand.working{outline:2px dashed var(--felt);outline-offset:2px}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px 0;padding:10px 0 2px 8px;min-height:62px;align-items:center}
+.chip{
+  --h:200;
+  display:inline-grid;place-items:center;width:40px;height:54px;margin-left:-6px;border-radius:7px;
+  background:var(--card);border:1.5px solid var(--card-edge);box-shadow:0 1px 0 var(--card-edge);
+  font-family:"Bungee","Arial Black",Impact,sans-serif;font-size:18px;line-height:1;
+}
+.chip:nth-child(odd){transform:rotate(-3deg)}
+.chip:nth-child(even){transform:rotate(2.5deg)}
+.chip.num{color:hsl(var(--h) 70% var(--num-l))}
+.chip.mod{background:var(--sun);color:var(--sun-ink);border-color:#C79200;font-size:15px}
+.chip.x2{background:var(--coral);color:var(--coral-ink);border-color:#9E2E1A;font-size:16px}
+.chip.faded{opacity:.45;text-decoration:line-through}
+.empty{color:var(--muted);font-size:15px;margin-left:6px}
+.f7{display:inline-block;background:var(--sun);color:var(--sun-ink);font-weight:800;font-size:13px;border-radius:99px;padding:2px 9px;margin-left:8px;vertical-align:2px}
+
+.commit{margin-top:16px;width:100%;font-size:18px}
+
+/* history */
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{padding:8px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left;color:var(--muted)}
+thead th{font-weight:700}
+tfoot td{font-weight:800;border-bottom:0}
+.hist-actions{display:flex;justify-content:flex-end;margin-top:10px}
+
+/* setup */
+.player-list{list-style:none;padding:0;margin:0 0 12px;display:grid;gap:8px}
+.player-list li{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:8px}
+.seat{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--felt);color:var(--felt-ink);font-weight:700;font-size:14px}
+.text-in{width:100%;min-height:46px;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--surface)}
+.add-row{display:grid;grid-template-columns:1fr auto;gap:8px}
+.field{display:flex;align-items:center;gap:10px;margin-top:16px}
+.field input{width:100px}
+.setup-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+.setup-actions .primary{flex:1 1 200px}
+
+/* dialogs */
+dialog{border:0;padding:0;background:var(--surface);color:var(--ink);border-radius:22px;width:min(560px,calc(100vw - 20px));max-height:calc(100dvh - 20px)}
+dialog::backdrop{background:rgba(3,20,18,.55)}
+.dlg{padding:18px 18px calc(18px + env(safe-area-inset-bottom));overflow-y:auto;max-height:calc(100dvh - 20px)}
+.dlg-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.pk-score{font-family:"Bungee","Arial Black",Impact,sans-serif;font-size:30px;line-height:1;margin:10px 0 2px}
+.pk-break{color:var(--muted);font-size:15px;margin:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));gap:8px}
+.tile{
+  --h:200;min-height:56px;border-radius:10px;border:1.5px solid var(--card-edge);background:var(--card);
+  font-family:"Bungee","Arial Black",Impact,sans-serif;font-size:20px;color:hsl(var(--h) 70% var(--num-l))
+}
+.tile[aria-pressed="true"]{background:hsl(var(--h) 70% var(--num-l));color:#fff;border-color:transparent;box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)}
+.tile.mod{color:var(--sun-ink);font-size:17px}
+.tile.mod[aria-pressed="true"]{background:var(--sun);color:var(--sun-ink)}
+.tile.x2{color:var(--coral);font-size:17px}
+.tile.x2[aria-pressed="true"]{background:var(--coral);color:var(--coral-ink)}
+.tile:disabled{opacity:.3;cursor:not-allowed}
+.switch{display:flex;align-items:center;gap:10px;margin-top:18px;font-weight:600}
+.switch.auto{margin-top:4px;font-weight:600;font-size:15px}
+.switch.auto input{accent-color:var(--felt)}
+.scan-row .link{text-align:left}
+.switch input{width:22px;height:22px;accent-color:var(--coral)}
+.dlg-actions{display:flex;gap:10px;margin-top:20px}
+.dlg-actions .primary{flex:1}
+
+.review-photo{width:100%;max-height:220px;object-fit:contain;border-radius:12px;background:var(--raised);margin:12px 0 4px}
+.review-list{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:10px}
+.review-list li{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--raised)}
+.rv-top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.rv-pos{color:var(--muted);font-size:14px}
+.rv-top select{min-height:42px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);padding:6px 10px;max-width:60%}
+
+@media (prefers-reduced-motion: reduce){
+  .status.work::before{animation:none}
+}
+@media (max-width:420px){
+  .chip{width:36px;height:50px;font-size:16px}
+  .standings .total{font-size:30px}
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <div>
+      <h1>Flip<span class="seven">7</span> scorer</h1>
+      <p class="meta" id="meta"></p>
+    </div>
+    <button class="btn ghost small" id="gameBtn" hidden>Players</button>
+  </header>
+
+  <!-- setup -->
+  <section id="setup" class="panel" hidden>
+    <h2>Who's playing?</h2>
+    <p class="note" id="setupEmpty">Add players in seating order, going clockwise. That order helps match hands in a table photo.</p>
+    <ol class="player-list" id="playerList"></ol>
+    <div class="add-row">
+      <input class="text-in" id="nameIn" placeholder="Player name" autocomplete="off" maxlength="30" aria-label="Player name">
+      <button class="btn primary" id="addBtn">Add</button>
+    </div>
+    <label class="field">Playing to <input class="text-in" id="targetIn" type="number" inputmode="numeric" min="50" max="1000" step="10"> points</label>
+    <div class="setup-actions">
+      <button class="btn primary" id="doneSetup">Start game</button>
+      <button class="btn ghost danger" id="newGame">Start a new game</button>
+    </div>
+  </section>
+
+  <!-- game -->
+  <div id="game" hidden>
+    <section class="panel">
+      <div id="winner" class="winner" hidden>
+        <span id="winnerText"></span>
+        <button class="btn small" id="winnerNew">Play again</button>
+      </div>
+      <ol class="standings" id="standings"></ol>
+    </section>
+
+    <section class="panel" id="roundPanel">
+      <h2 id="roundTitle">Round 1</h2>
+      <div class="scan" id="scanBox">
+        <button class="btn primary scan-btn" id="scanTableBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          <span id="scanLabel">Snap the table</span>
+        </button>
+        <div class="scan-row">
+          <button class="link" id="pickTableBtn">Use a photo you already took</button>
+          <button class="link" id="stopScan" hidden>Stop scan</button>
+        </div>
+        <label class="switch auto"><input type="checkbox" id="autoAddIn"> Add scores to totals right after the photo</label>
+      </div>
+      <p class="status" id="scanStatus" role="status" aria-live="polite"></p>
+      <div class="scan-row" id="scanFix" hidden>
+        <button class="link" id="fixShift">Wrong people? Shift everyone one seat</button>
+        <button class="link" id="fixMatch">Match hands myself</button>
+      </div>
+      <ul class="hands" id="hands"></ul>
+      <button class="btn primary commit" id="commit">Add round to totals</button>
+    </section>
+
+    <section class="panel" id="historyPanel" hidden>
+      <h2>Rounds</h2>
+      <div class="scroll"><table id="histTable"></table></div>
+      <div class="hist-actions"><button class="btn ghost small" id="undoBtn">Undo last round</button></div>
+    </section>
+  </div>
+</main>
+
+<dialog id="picker" aria-labelledby="pkName">
+  <div class="dlg">
+    <div class="dlg-head">
+      <div>
+        <h3 id="pkName"></h3>
+        <p class="pk-score" id="pkScore"></p>
+        <p class="pk-break" id="pkBreak"></p>
+      </div>
+      <button class="btn ghost small" id="pkClose">Close</button>
+    </div>
+    <h4 id="pkCount">Number cards</h4>
+    <div class="grid" id="pkNums"></div>
+    <h4>Modifier cards</h4>
+    <div class="grid" id="pkMods"></div>
+    <label class="switch"><input type="checkbox" id="pkBust"> Busted this round (scores 0)</label>
+    <div class="dlg-actions">
+      <button class="btn ghost" id="pkClear">Clear hand</button>
+      <button class="btn primary" id="pkDone">Done</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="review" aria-labelledby="rvTitle">
+  <div class="dlg">
+    <div class="dlg-head">
+      <div>
+        <h3 id="rvTitle">Match hands to players</h3>
+        <p class="pk-break">Pick who each hand belongs to, then save.</p>
+      </div>
+      <button class="btn ghost small" id="rvClose">Close</button>
+    </div>
+    <img class="review-photo" id="rvPhoto" alt="The table photo you scanned" hidden>
+    <button class="link" id="rvRotate">Shift everyone one seat</button>
+    <ul class="review-list" id="rvList"></ul>
+    <div class="dlg-actions">
+      <button class="btn primary" id="rvApply">Save these hands</button>
+    </div>
+  </div>
+</dialog>
+
+<input type="file" id="camTable" accept="image/*" capture="environment" hidden>
+<input type="file" id="libTable" accept="image/*" hidden>
+<input type="file" id="camHand" accept="image/*" capture="environment" hidden>
+
+<script>
+(() => {
+  const KEY = "flip7-scorer-v1";
+  const MODS = [2, 4, 6, 8, 10];
+  const HUES = [200, 0, 22, 38, 95, 140, 168, 188, 212, 248, 278, 308, 335];
+  const PERMANENT = new Set(["not_granted","sampling_disabled","not_declared","capability_disabled","capability_removed","images_unavailable"]);
+  const $ = (s) => document.querySelector(s);
+  const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function el(tag, attrs = {}, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") n.className = v;
+      else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2), v);
+      else if (v === true) n.setAttribute(k, "");
+      else if (v !== false && v != null) n.setAttribute(k, v);
+    }
+    for (const c of kids.flat()) {
+      if (c == null || c === false) continue;
+      n.append(c.nodeType ? c : document.createTextNode(String(c)));
+    }
+    return n;
+  }
+
+  // ---------- state ----------
+  const blank = () => ({ players: [], target: 200, history: [], hands: {} });
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return null;
+      const s = JSON.parse(raw);
+      if (!s || !Array.isArray(s.players)) return null;
+      s.history = Array.isArray(s.history) ? s.history : [];
+      s.hands = s.hands && typeof s.hands === "object" ? s.hands : {};
+      s.target = Number(s.target) || 200;
+      s.autoAdd = s.autoAdd === true;
+      return s;
+    } catch { return null; }
+  }
+  let S = load() || blank();
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} }
+
+  const uid = () => Math.random().toString(36).slice(2, 10);
+  const emptyHand = () => ({ nums: [], mods: [], x2: false, bust: false, scanned: false });
+  const getHand = (id) => S.hands[id] || emptyHand();
+  const setHand = (id, h) => { S.hands[id] = h; commitArmed = false; save(); };
+  const isEmpty = (h) => !h.nums.length && !h.mods.length && !h.x2 && !h.bust;
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const nameOf = (id) => (S.players.find((p) => p.id === id) || {}).name || "Player";
+
+  // Official order: sum numbers, x2 doubles numbers only, add +mods, then +15 for 7 unique numbers.
+  function score(h) {
+    if (h.bust) return { total: 0, bust: true };
+    const base = sum(h.nums);
+    const doubled = h.x2 ? base * 2 : base;
+    const plus = sum(h.mods);
+    const bonus = h.nums.length >= 7 ? 15 : 0;
+    return { base, doubled, plus, bonus, total: doubled + plus + bonus, bust: false };
+  }
+  function breakdown(h) {
+    if (h.bust) return "Busted, scores 0";
+    if (isEmpty(h)) return "No cards yet";
+    const s = score(h);
+    const parts = [h.x2 ? `${s.base} in numbers, doubled to ${s.doubled}` : `${s.base} in numbers`];
+    if (s.plus) parts.push(`+${s.plus} from modifiers`);
+    if (s.bonus) parts.push("+15 Flip 7 bonus");
+    return parts.join(", ");
+  }
+  function totals() {
+    const t = {};
+    for (const p of S.players) t[p.id] = 0;
+    for (const r of S.history) for (const [id, v] of Object.entries(r.scores)) if (id in t) t[id] += v;
+    return t;
+  }
+  function winnerInfo() {
+    const t = totals();
+    const over = S.players.filter((p) => t[p.id] >= S.target).sort((a, b) => t[b.id] - t[a.id]);
+    if (!over.length) return null;
+    const best = t[over[0].id];
+    const tied = S.players.filter((p) => t[p.id] === best);
+    return { players: tied, score: best };
+  }
+
+  function normalize(raw) {
+    const nums = (Array.isArray(raw.numbers) ? raw.numbers : [])
+      .map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 0 && n <= 12);
+    const dup = nums.length !== new Set(nums).size;
+    const uniq = [...new Set(nums)].sort((a, b) => a - b).slice(0, 7);
+    const mods = [...new Set((Array.isArray(raw.modifiers) ? raw.modifiers : [])
+      .map((m) => Number(String(m).replace(/[^\d]/g, ""))).filter((m) => MODS.includes(m)))].sort((a, b) => a - b);
+    return { nums: uniq, mods, x2: raw.times_two === true || raw.times_two === "true", bust: dup || raw.busted === true, scanned: true };
+  }
+
+  // ---------- view state ----------
+  let view = S.players.length ? "game" : "setup";
+  const scan = { state: "pending", busy: null, ctl: null, msg: "", kind: "" };
+  let sample = null, maxBytes = Infinity;
+  let commitArmed = false;
+  let handTarget = null;
+  let lastScan = null;
+
+  function setMsg(msg, kind) { scan.msg = msg; scan.kind = kind || ""; }
+
+  // ---------- chips ----------
+  function numChip(n, faded) {
+    const c = el("span", { class: "chip num" + (faded ? " faded" : ""), "aria-label": `number ${n}` }, String(n));
+    c.style.setProperty("--h", HUES[n]);
+    return c;
+  }
+  function chipsFor(h) {
+    const wrap = el("div", { class: "chips" });
+    if (isEmpty(h)) { wrap.append(el("span", { class: "empty" }, "No cards yet. Snap or edit this hand.")); return wrap; }
+    h.nums.forEach((n) => wrap.append(numChip(n, h.bust)));
+    if (h.x2) wrap.append(el("span", { class: "chip x2", "aria-label": "times two" }, "×2"));
+    h.mods.forEach((m) => wrap.append(el("span", { class: "chip mod", "aria-label": `plus ${m}` }, `+${m}`)));
+    if (h.bust && !h.nums.length && !h.mods.length && !h.x2) wrap.append(el("span", { class: "empty" }, "Busted"));
+    return wrap;
+  }
+
+  // ---------- render ----------
+  function render() {
+    $("#setup").hidden = view !== "setup";
+    $("#game").hidden = view !== "game";
+    $("#gameBtn").hidden = view !== "game";
+    if (view === "setup") renderSetup(); else renderGame();
+  }
+
+  function renderSetup() {
+    $("#meta").textContent = "Take a photo at the end of each round and the scores add up for you.";
+    const list = $("#playerList");
+    list.replaceChildren();
+    S.players.forEach((p, i) => {
+      const input = el("input", { class: "text-in", value: p.name, maxlength: "30", "aria-label": `Seat ${i + 1} name` });
+      input.addEventListener("change", () => { p.name = input.value.trim() || p.name; input.value = p.name; save(); });
+      list.append(el("li", {},
+        el("span", { class: "seat" }, String(i + 1)),
+        input,
+        el("button", { class: "btn ghost small", onclick: () => {
+          S.players.splice(i, 1); delete S.hands[p.id]; save(); renderSetup();
+        } }, "Remove")));
+    });
+    $("#targetIn").value = S.target;
+    $("#doneSetup").disabled = S.players.length < 1;
+    $("#doneSetup").textContent = S.history.length ? "Back to the game" : "Start game";
+    $("#newGame").hidden = !S.history.length;
+  }
+
+  function renderGame() {
+    const t = totals();
+    const w = winnerInfo();
+    const round = S.history.length + 1;
+    $("#meta").textContent = w ? `Game over after ${S.history.length} rounds` : `Round ${round}, playing to ${S.target}`;
+
+    // winner
+    $("#winner").hidden = !w;
+    if (w) {
+      $("#winnerText").textContent = w.players.length > 1
+        ? `${w.players.map((p) => p.name).join(" and ")} tie at ${w.score}. Play a tiebreaker round or start over.`
+        : `${w.players[0].name} wins with ${w.score}!`;
+    }
+
+    // standings
+    const st = $("#standings");
+    st.replaceChildren();
+    const last = S.history[S.history.length - 1];
+    const sorted = [...S.players].sort((a, b) => t[b.id] - t[a.id]);
+    const topScore = sorted.length ? t[sorted[0].id] : 0;
+    sorted.forEach((p) => {
+      const fill = el("span");
+      fill.style.width = Math.min(100, Math.round((t[p.id] / S.target) * 100)) + "%";
+      let sub;
+      if (last) sub = last.scores[p.id] ? `+${last.scores[p.id]} last round, ${Math.max(0, S.target - t[p.id])} to go` : `nothing last round, ${Math.max(0, S.target - t[p.id])} to go`;
+      else sub = `${S.target} to go`;
+      st.append(el("li", { class: topScore > 0 && t[p.id] === topScore ? "lead" : "" },
+        el("span", { class: "pname" }, p.name),
+        el("span", { class: "total" }, String(t[p.id])),
+        el("div", { class: "bar", "aria-hidden": "true" }, fill),
+        el("span", { class: "sub" }, sub)));
+    });
+
+    // round panel
+    $("#roundPanel").hidden = !!w && !(w.players.length > 1);
+    $("#roundTitle").textContent = w && w.players.length > 1 ? "Tiebreaker round" : `Round ${round}`;
+    $("#scanLabel").textContent = scan.state === "pending" ? "Snap the table (starting up…)" : "Snap the table";
+    $("#scanTableBtn").disabled = !!scan.busy;
+    $("#pickTableBtn").disabled = !!scan.busy;
+    $("#stopScan").hidden = !scan.busy;
+    $("#autoAddIn").checked = !!S.autoAdd;
+    $("#scanFix").hidden = !lastScan || !!scan.busy;
+    $("#fixShift").hidden = S.players.length < 2;
+    const status = $("#scanStatus");
+    status.textContent = scan.msg;
+    status.className = "status " + (scan.busy ? "work" : scan.kind);
+
+    const hands = $("#hands");
+    hands.replaceChildren();
+    for (const p of S.players) {
+      const h = getHand(p.id);
+      const s = score(h);
+      const working = scan.busy === p.id;
+      const scoreText = h.bust ? "Bust" : isEmpty(h) ? "–" : String(s.total);
+      const top = el("div", { class: "hand-top" },
+        el("span", { class: "pname" }, p.name, (!h.bust && h.nums.length >= 7) ? el("span", { class: "f7" }, "Flip 7") : null),
+        el("span", { class: "hscore", "aria-label": h.bust ? "busted, 0 points" : `${s.total} points` }, scoreText));
+      const btns = el("div", { class: "hand-btns" },
+        el("button", { class: "btn ghost small", onclick: () => openPicker(p.id) }, "Edit cards"),
+        el("button", {
+          class: "btn ghost small", disabled: !!scan.busy,
+          onclick: () => { if (!scanGate()) return; handTarget = p.id; $("#camHand").click(); }
+        }, working ? "Reading…" : "Snap just this hand"));
+      hands.append(el("li", { class: "hand" + (h.bust ? " is-bust" : "") + (working ? " working" : "") },
+        top, chipsFor(h),
+        isEmpty(h) ? null : el("p", { class: "hand-meta" }, breakdown(h) + (h.scanned ? " (read from photo)" : "")),
+        btns));
+    }
+
+    const empties = S.players.filter((p) => isEmpty(getHand(p.id)));
+    const commit = $("#commit");
+    if (commitArmed && empties.length) {
+      const names = empties.map((p) => p.name);
+      const list = names.length > 2 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : names.join(" and ");
+      commit.textContent = `${list} ${names.length > 1 ? "have" : "has"} no cards. Tap again to score 0.`;
+    } else {
+      commit.textContent = "Add round to totals";
+    }
+    commit.disabled = !!scan.busy;
+
+    // history
+    $("#historyPanel").hidden = !S.history.length;
+    if (S.history.length) {
+      const table = $("#histTable");
+      table.replaceChildren(
+        el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Round"), S.players.map((p) => el("th", { scope: "col" }, p.name)))),
+        el("tbody", {}, S.history.map((r, i) => el("tr", {},
+          el("td", {}, String(i + 1)),
+          S.players.map((p) => el("td", {}, r.scores[p.id] == null ? "–" : String(r.scores[p.id])))))),
+        el("tfoot", {}, el("tr", {}, el("td", {}, "Total"), S.players.map((p) => el("td", {}, String(t[p.id]))))));
+    }
+  }
+
+  // ---------- setup actions ----------
+  function addPlayer() {
+    const input = $("#nameIn");
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    S.players.push({ id: uid(), name });
+    input.value = "";
+    save(); renderSetup(); input.focus();
+  }
+  $("#addBtn").addEventListener("click", addPlayer);
+  $("#nameIn").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addPlayer(); } });
+  $("#targetIn").addEventListener("change", (e) => {
+    const v = Math.round(Number(e.target.value));
+    S.target = Number.isFinite(v) ? Math.min(1000, Math.max(50, v)) : 200;
+    e.target.value = S.target; save();
+  });
+  $("#doneSetup").addEventListener("click", () => { if (S.players.length) { view = "game"; render(); window.scrollTo(0, 0); } });
+  function newGame() { lastScan = null; S.history = []; S.hands = {}; commitArmed = false; setMsg("", ""); save(); view = "game"; render(); window.scrollTo(0, 0); }
+  $("#newGame").addEventListener("click", newGame);
+  $("#winnerNew").addEventListener("click", newGame);
+  $("#gameBtn").addEventListener("click", () => { view = "setup"; render(); window.scrollTo(0, 0); });
+
+  // ---------- round actions ----------
+  function commitRound() {
+    const scores = {}, hands = {};
+    for (const p of S.players) { const h = getHand(p.id); scores[p.id] = score(h).total; hands[p.id] = h; }
+    S.history.push({ scores, hands });
+    S.hands = {};
+    commitArmed = false;
+    save();
+  }
+  $("#commit").addEventListener("click", () => {
+    const empties = S.players.filter((p) => isEmpty(getHand(p.id)));
+    if (empties.length && !commitArmed) { commitArmed = true; render(); return; }
+    commitRound();
+    if (lastScan) lastScan.committed = true;
+    setMsg("", "");
+    render();
+    window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+  });
+  $("#autoAddIn").addEventListener("change", (e) => { S.autoAdd = e.target.checked; save(); });
+  $("#undoBtn").addEventListener("click", () => {
+    const r = S.history.pop();
+    if (!r) return;
+    S.hands = r.hands || {};
+    commitArmed = false;
+    lastScan = null;
+    setMsg("Last round is back open for editing.", "ok");
+    save(); render();
+  });
+
+  // ---------- picker ----------
+  let pickId = null;
+  function openPicker(id) { pickId = id; renderPicker(); $("#picker").showModal(); }
+  function editHand(fn) {
+    const h = JSON.parse(JSON.stringify(getHand(pickId)));
+    fn(h);
+    setHand(pickId, h);
+    lastScan = null;
+    renderPicker(); render();
+  }
+  function renderPicker() {
+    if (!S.players.some((p) => p.id === pickId)) return;
+    const h = getHand(pickId);
+    const s = score(h);
+    $("#pkName").textContent = nameOf(pickId);
+    $("#pkScore").textContent = h.bust ? "Bust" : `${s.total} points`;
+    $("#pkBreak").textContent = breakdown(h);
+    $("#pkCount").textContent = h.nums.length >= 7 ? "Number cards: 7 of 7, Flip 7 bonus!" : `Number cards: ${h.nums.length} of 7`;
+    const full = h.nums.length >= 7;
+    const nums = $("#pkNums");
+    nums.replaceChildren();
+    for (let n = 0; n <= 12; n++) {
+      const on = h.nums.includes(n);
+      const b = el("button", { class: "tile", "aria-pressed": String(on), disabled: !on && full, onclick: () => editHand((x) => {
+        x.nums = x.nums.includes(n) ? x.nums.filter((v) => v !== n) : [...x.nums, n].sort((a, c) => a - c);
+      }) }, String(n));
+      b.style.setProperty("--h", HUES[n]);
+      nums.append(b);
+    }
+    const mods = $("#pkMods");
+    mods.replaceChildren();
+    for (const m of MODS) {
+      mods.append(el("button", { class: "tile mod", "aria-pressed": String(h.mods.includes(m)), "aria-label": `plus ${m}`, onclick: () => editHand((x) => {
+        x.mods = x.mods.includes(m) ? x.mods.filter((v) => v !== m) : [...x.mods, m].sort((a, c) => a - c);
+      }) }, `+${m}`));
+    }
+    mods.append(el("button", { class: "tile x2", "aria-pressed": String(h.x2), "aria-label": "times two", onclick: () => editHand((x) => { x.x2 = !x.x2; }) }, "×2"));
+    $("#pkBust").checked = h.bust;
+  }
+  $("#pkBust").addEventListener("change", (e) => editHand((x) => { x.bust = e.target.checked; }));
+  $("#pkClear").addEventListener("click", () => editHand((x) => Object.assign(x, emptyHand())));
+  $("#pkDone").addEventListener("click", () => $("#picker").close());
+  $("#pkClose").addEventListener("click", () => $("#picker").close());
+
+  // ---------- scanning ----------
+  const RULES = `This is a photo from the card game Flip 7, taken at the end of a round.
+Cards you may see:
+- Number cards: one large number from 0 to 12. The same number is also printed small in the corners, so count each physical card once.
+- Modifier cards: +2, +4, +6, +8, +10, or x2.
+- Action cards: Freeze, Flip Three, Second Chance. Ignore these completely.
+Read only face-up cards that belong to a player's hand. Ignore the draw pile, discard pile, score sheets, phones, and anything that is not a card.
+If one hand contains the same number twice, that hand busted: list both copies in "numbers" and set "busted" to true. Also set "busted" to true if a hand is turned face down or set aside as busted.
+Take care with 6 versus 9 (use card orientation and any underline) and with 1 versus 7.`;
+
+  function tablePrompt() {
+    const names = S.players.map((p) => p.name).join(", ");
+    return `${RULES}
+
+The photo shows the whole table. There are ${S.players.length} players (${names}). Group the cards into one hand per player; a hand is usually a row or cluster of cards in front of one seat. Order the hands clockwise, starting with the hand closest to the bottom edge of the photo. If a player's name is written next to a hand, put it in "label"; otherwise use null. Use "position" for a few words saying where the hand is in the photo.
+
+Reply with only JSON in this shape:
+{"hands":[{"position":"bottom center","label":null,"numbers":[3,7,12],"modifiers":[4],"times_two":false,"busted":false}]}`;
+  }
+  function handPrompt() {
+    return `${RULES}
+
+The photo shows one player's hand. Read every card in it.
+
+Reply with only JSON in this shape:
+{"numbers":[3,7,12],"modifiers":[4],"times_two":false,"busted":false}`;
+  }
+
+  function errCopy(code) {
+    switch (code) {
+      case "cancelled": return "Scan stopped.";
+      case "rate_limited": return "Too many scans right now. Wait a minute, then try again.";
+      case "session_expired": return "Sign in to Claude again, then retry the scan.";
+      case "images_unavailable": return "This Claude app can't send photos yet. Try claude.ai in your phone's browser, or tap Edit cards to score by hand.";
+      case "image_rejected": return "That photo couldn't be opened. Try a JPEG or PNG under 20 MB.";
+      case "too_big": return "That photo is too large. Try a smaller one.";
+      case "invalid_json":
+      case "empty_completion": return "The cards couldn't be read from that photo. Try a closer, brighter shot with the cards flat.";
+      case "refused": return "That photo couldn't be scanned. Try another shot.";
+      default:
+        if (PERMANENT.has(code)) return "Photo scanning is turned off for this view. Tap Edit cards on each hand to score it.";
+        return "The scan didn't finish. Try again.";
+    }
+  }
+
+  async function prep(file) {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+      const k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * k);
+      c.height = Math.round(bmp.height * k);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      if (bmp.close) bmp.close();
+      const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.9));
+      return blob || file;
+    } catch { return file; }
+  }
+  function toDataURL(blob) {
+    return new Promise((res) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result));
+      r.onerror = () => res("");
+      r.readAsDataURL(blob);
+    });
+  }
+
+  async function runScan(file, target) {
+    if (!file || !sample || scan.busy) return;
+    const ctl = new AbortController();
+    scan.busy = target || "table";
+    scan.ctl = ctl;
+    setMsg(target ? `Reading ${nameOf(target)}'s cards. This can take up to a minute.` : "Reading the table. This can take up to a minute.", "");
+    render();
+    try {
+      const img = await prep(file);
+      if (ctl.signal.aborted) throw { code: "cancelled" };
+      if (img.size > maxBytes) throw { code: "too_big" };
+      const data = await sample.json(target ? handPrompt() : tablePrompt(), { images: img, signal: ctl.signal });
+      if (target) {
+        const raw = data && Array.isArray(data.hands) ? data.hands[0] : data;
+        if (!raw || typeof raw !== "object") throw { code: "invalid_json" };
+        const h = normalize(raw);
+        setHand(target, h);
+        lastScan = null;
+        setMsg(isEmpty(h)
+          ? `No cards found for ${nameOf(target)}. Try a closer shot.`
+          : `${nameOf(target)}'s hand is in. Tap Edit cards if anything looks off.`, isEmpty(h) ? "err" : "ok");
+      } else {
+        const list = data && Array.isArray(data.hands) ? data.hands.filter((x) => x && typeof x === "object") : null;
+        if (!list) throw { code: "invalid_json" };
+        const found = list.map((r) => ({
+          hand: normalize(r),
+          position: String(r.position || "").slice(0, 40),
+          label: r.label ? String(r.label).slice(0, 40) : null,
+        })).filter((x) => !isEmpty(x.hand));
+        if (!found.length) setMsg("No hands found in that photo. Try again with every card in view.", "err");
+        else startTableScan(found, await toDataURL(img));
+      }
+    } catch (e) {
+      const code = (e && e.code) || "upstream_error";
+      if (PERMANENT.has(code)) { scan.state = "off"; scan.offReason = code; }
+      setMsg(errCopy(code), code === "cancelled" ? "" : "err");
+    } finally {
+      scan.busy = null;
+      scan.ctl = null;
+      render();
+    }
+  }
+
+  function onFile(input, getTarget) {
+    input.addEventListener("change", () => {
+      const f = input.files && input.files[0];
+      const target = getTarget();
+      input.value = "";
+      if (f) runScan(f, target);
+    });
+  }
+  onFile($("#camTable"), () => null);
+  onFile($("#libTable"), () => null);
+  onFile($("#camHand"), () => handTarget);
+  // Returns true when a scan can start; otherwise explains why on screen.
+  function scanGate() {
+    if (scan.state === "ready") return true;
+    if (scan.state === "pending") setMsg("Photo scanning is still starting up. Try again in a few seconds.", "err");
+    else setMsg(offCopy(), "err");
+    render();
+    return false;
+  }
+  function offCopy() {
+    switch (scan.offReason) {
+      case "outside": return "Photo scanning only works when this page is open inside Claude (claude.ai or the Claude app). Open the artifact link there, or tap Edit cards to score by hand.";
+      case "no-sample": return "This view can't reach Claude, so photos can't be scanned. Open the page from claude.ai or an updated Claude app, or tap Edit cards to score by hand.";
+      case "no-images": return "This Claude app can't send photos yet. Try claude.ai in your phone's browser, or tap Edit cards to score by hand.";
+      default: return errCopy(scan.offReason || "not_granted");
+    }
+  }
+  $("#scanTableBtn").addEventListener("click", () => { if (scanGate()) $("#camTable").click(); });
+  $("#pickTableBtn").addEventListener("click", () => { if (scanGate()) $("#libTable").click(); });
+  $("#stopScan").addEventListener("click", () => { if (scan.ctl) scan.ctl.abort(); });
+
+  // ---------- review (table scan) ----------
+  let rvHands = [], rvAssign = [], rvOffset = 0;
+  function defaultAssign() {
+    const ids = S.players.map((p) => p.id);
+    const taken = new Set();
+    const out = rvHands.map((rh) => {
+      const label = rh.label ? rh.label.trim().toLowerCase() : "";
+      const m = label && S.players.find((p) => p.name.trim().toLowerCase() === label);
+      if (m && !taken.has(m.id)) { taken.add(m.id); return m.id; }
+      return null;
+    });
+    let k = rvOffset;
+    out.forEach((v, i) => {
+      if (v) return;
+      for (let tries = 0; tries < ids.length; tries++) {
+        const id = ids[((k % ids.length) + ids.length) % ids.length];
+        k++;
+        if (!taken.has(id)) { taken.add(id); out[i] = id; break; }
+      }
+      if (!out[i]) out[i] = "";
+    });
+    return out;
+  }
+  let rvPhoto = "";
+  function startTableScan(found, photo) {
+    rvHands = found;
+    rvOffset = 0;
+    rvPhoto = photo;
+    rvAssign = defaultAssign();
+    lastScan = null;
+    applyScan();
+  }
+  // Puts the scanned hands on the players (replacing this round), and adds the round if auto-add is on.
+  function applyScan() {
+    if (lastScan && lastScan.committed) S.history.pop();
+    S.hands = {};
+    rvAssign.forEach((id, i) => { if (id) S.hands[id] = JSON.parse(JSON.stringify(rvHands[i].hand)); });
+    commitArmed = false;
+    save();
+    const summary = S.players.map((p) => {
+      const h = getHand(p.id);
+      return `${p.name} ${h.bust ? "bust" : score(h).total}`;
+    }).join(", ");
+    const mismatch = rvHands.length !== S.players.length
+      ? ` Found ${rvHands.length} hand${rvHands.length === 1 ? "" : "s"} for ${S.players.length} players, so check the matches.`
+      : "";
+    lastScan = { committed: false };
+    if (S.autoAdd) {
+      commitRound();
+      lastScan.committed = true;
+      setMsg(`Round ${S.history.length} added: ${summary}.${mismatch}`, mismatch ? "err" : "ok");
+    } else {
+      setMsg(`Scored from the photo: ${summary}. Tap Add round to totals when it looks right.${mismatch}`, mismatch ? "err" : "ok");
+    }
+    render();
+  }
+  function openReview() {
+    const img = $("#rvPhoto");
+    if (rvPhoto) { img.src = rvPhoto; img.hidden = false; } else { img.removeAttribute("src"); img.hidden = true; }
+    $("#rvRotate").hidden = S.players.length < 2;
+    renderReview();
+    $("#review").showModal();
+  }
+  function renderReview() {
+    const list = $("#rvList");
+    list.replaceChildren();
+    rvHands.forEach((rh, i) => {
+      const sel = el("select", { "aria-label": `Who has hand ${i + 1}` },
+        el("option", { value: "" }, "Skip this hand"),
+        S.players.map((p) => el("option", { value: p.id, selected: rvAssign[i] === p.id }, p.name)));
+      sel.value = rvAssign[i] || "";
+      sel.addEventListener("change", () => { rvAssign[i] = sel.value; });
+      const s = score(rh.hand);
+      list.append(el("li", {},
+        el("div", { class: "rv-top" },
+          el("span", {}, el("strong", {}, rh.hand.bust ? "Bust" : `${s.total} points`), " ",
+            el("span", { class: "rv-pos" }, rh.position ? `(${rh.position})` : "")),
+          sel),
+        chipsFor(rh.hand)));
+    });
+    applyLabel();
+  }
+  function applyLabel() {
+    const picked = rvAssign.filter(Boolean);
+    $("#rvApply").textContent = picked.length !== new Set(picked).size ? "Save (one player picked twice; last one wins)" : "Save these hands";
+  }
+  $("#review").addEventListener("change", applyLabel);
+  $("#rvRotate").addEventListener("click", () => { rvOffset++; rvAssign = defaultAssign(); renderReview(); });
+  $("#rvClose").addEventListener("click", () => $("#review").close());
+  $("#rvApply").addEventListener("click", () => { $("#review").close(); applyScan(); });
+  $("#fixShift").addEventListener("click", () => { if (!lastScan) return; rvOffset++; rvAssign = defaultAssign(); applyScan(); });
+  $("#fixMatch").addEventListener("click", () => { if (lastScan) openReview(); });
+
+  // ---------- start ----------
+  render();
+  (async () => {
+    try {
+      if (!window.claude || typeof window.claude.use !== "function") throw "outside";
+      sample = await window.claude.use("sample");
+      if (!sample) throw "no-sample";
+      const lim = await sample.limits().catch(() => null);
+      if (lim && lim.images) maxBytes = lim.images.maxInputBytes || Infinity;
+      // Some viewers under-report image support; let the scan try and handle images_unavailable if it fails.
+      scan.state = "ready";
+      if (!lim || !lim.images) scan.maybeNoImages = true;
+    } catch (why) {
+      scan.state = "off";
+      scan.offReason = typeof why === "string" ? why : "no-sample";
+    }
+    render();
+  })();
+})();
+</script>
+</body>
+</html>
