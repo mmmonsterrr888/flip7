@@ -131,6 +131,9 @@ tfoot td{font-weight:800;border-bottom:0}
 .add-row{display:grid;grid-template-columns:1fr auto;gap:8px}
 .field{display:flex;align-items:center;gap:10px;margin-top:16px}
 .field input{width:100px}
+.keybox{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}
+.keybox h3{font-size:19px;margin-bottom:6px}
+.keybox a{color:var(--ink);font-weight:700}
 .setup-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
 .setup-actions .primary{flex:1 1 200px}
 
@@ -196,6 +199,17 @@ dialog::backdrop{background:rgba(3,20,18,.55)}
       <button class="btn primary" id="addBtn">Add</button>
     </div>
     <label class="field">Playing to <input class="text-in" id="targetIn" type="number" inputmode="numeric" min="50" max="1000" step="10"> points</label>
+    <div class="keybox" id="keyBox" hidden>
+      <h3>Photo scanning</h3>
+      <p class="note">With no key, photos are read right on this phone for free. That reader is less accurate: it works best with a close, bright, straight-on photo of one hand at a time.</p>
+      <p class="note">For much better reading, paste an Anthropic API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. It's saved only in this browser on this device, and each scan is billed to your Anthropic account.</p>
+      <div class="add-row">
+        <input class="text-in" id="keyIn" type="password" placeholder="sk-ant-…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Anthropic API key">
+        <button class="btn primary" id="keySave">Save key</button>
+      </div>
+      <p class="status" id="keyState" role="status" aria-live="polite"></p>
+      <button class="link" id="keyRemove" hidden>Remove key from this device</button>
+    </div>
     <div class="setup-actions">
       <button class="btn primary" id="doneSetup">Start game</button>
       <button class="btn ghost danger" id="newGame">Start a new game</button>
@@ -289,6 +303,8 @@ dialog::backdrop{background:rgba(3,20,18,.55)}
 <script>
 (() => {
   const KEY = "flip7-scorer-v1";
+  const API_KEY_STORE = "flip7-anthropic-key";
+  const API_MODEL = "claude-sonnet-5";
   const MODS = [2, 4, 6, 8, 10];
   const HUES = [200, 0, 22, 38, 95, 140, 168, 188, 212, 248, 278, 308, 335];
   const PERMANENT = new Set(["not_granted","sampling_disabled","not_declared","capability_disabled","capability_removed","images_unavailable"]);
@@ -383,6 +399,9 @@ dialog::backdrop{background:rgba(3,20,18,.55)}
   let view = S.players.length ? "game" : "setup";
   const scan = { state: "pending", busy: null, ctl: null, msg: "", kind: "" };
   let sample = null, maxBytes = Infinity;
+  let lastEngine = "claude";
+  const localNote = () => lastEngine === "local" ? " Read on this phone, so double-check the cards." : "";
+  let mode = "pending"; // "claude" inside Claude, "key" on any other website
   let commitArmed = false;
   let handTarget = null;
   let lastScan = null;
@@ -431,6 +450,15 @@ dialog::backdrop{background:rgba(3,20,18,.55)}
     $("#doneSetup").disabled = S.players.length < 1;
     $("#doneSetup").textContent = S.history.length ? "Back to the game" : "Start game";
     $("#newGame").hidden = !S.history.length;
+    $("#keyBox").hidden = mode !== "key";
+    if (mode === "key") {
+      const k = getKey();
+      $("#keyRemove").hidden = !k;
+      const ks = $("#keyState");
+      if (scan.offReason === "bad_key" && k) { ks.textContent = "The saved key didn't work. Paste a new one."; ks.className = "status err"; }
+      else if (k) { ks.textContent = `Key saved, ending in ${k.slice(-4)}. Photos are read by Claude.`; ks.className = "status ok"; }
+      else if (!ks.textContent || ks.className.includes("ok")) { ks.textContent = "No key saved, so photos are read on this phone (free, less accurate)."; ks.className = "status"; }
+    }
   }
 
   function renderGame() {
@@ -654,6 +682,13 @@ Reply with only JSON in this shape:
       case "cancelled": return "Scan stopped.";
       case "rate_limited": return "Too many scans right now. Wait a minute, then try again.";
       case "session_expired": return "Sign in to Claude again, then retry the scan.";
+      case "need_key": return "Add your Anthropic API key under Players to scan photos.";
+      case "ocr_load": return "Couldn't load the on-phone card reader. Check your connection and try again.";
+      case "bad_key": return "Anthropic didn't accept the API key. Check it under Players.";
+      case "no_credit": return "Your Anthropic account needs credits or billing set up before it can scan photos.";
+      case "network": return "Couldn't reach Anthropic. Check your connection and try again.";
+      case "overloaded": return "Anthropic is busy right now. Try again in a minute.";
+      case "bad_request": return "Anthropic rejected the scan request.";
       case "images_unavailable": return "This Claude app can't send photos yet. Try claude.ai in your phone's browser, or tap Edit cards to score by hand.";
       case "image_rejected": return "That photo couldn't be opened. Try a JPEG or PNG under 20 MB.";
       case "too_big": return "That photo is too large. Try a smaller one.";
@@ -699,7 +734,14 @@ Reply with only JSON in this shape:
       const img = await prep(file);
       if (ctl.signal.aborted) throw { code: "cancelled" };
       if (img.size > maxBytes) throw { code: "too_big" };
-      const data = await sample.json(target ? handPrompt() : tablePrompt(), { images: img, signal: ctl.signal });
+      const opts = { images: img, signal: ctl.signal };
+      if (mode !== "claude") Object.assign(opts, {
+        kind: target ? "hand" : "table",
+        players: S.players.length,
+        onStatus: (m) => { if (scan.ctl === ctl) { setMsg(m, ""); render(); } },
+      });
+      lastEngine = mode === "claude" || getKey() ? "claude" : "local";
+      const data = await sample.json(target ? handPrompt() : tablePrompt(), opts);
       if (target) {
         const raw = data && Array.isArray(data.hands) ? data.hands[0] : data;
         if (!raw || typeof raw !== "object") throw { code: "invalid_json" };
@@ -708,7 +750,7 @@ Reply with only JSON in this shape:
         lastScan = null;
         setMsg(isEmpty(h)
           ? `No cards found for ${nameOf(target)}. Try a closer shot.`
-          : `${nameOf(target)}'s hand is in. Tap Edit cards if anything looks off.`, isEmpty(h) ? "err" : "ok");
+          : `${nameOf(target)}'s hand is in.${localNote()} Tap Edit cards if anything looks off.`, isEmpty(h) ? "err" : "ok");
       } else {
         const list = data && Array.isArray(data.hands) ? data.hands.filter((x) => x && typeof x === "object") : null;
         if (!list) throw { code: "invalid_json" };
@@ -722,8 +764,10 @@ Reply with only JSON in this shape:
       }
     } catch (e) {
       const code = (e && e.code) || "upstream_error";
-      if (PERMANENT.has(code)) { scan.state = "off"; scan.offReason = code; }
-      setMsg(errCopy(code), code === "cancelled" ? "" : "err");
+      if (PERMANENT.has(code) || code === "bad_key" || code === "need_key") { scan.state = "off"; scan.offReason = code; }
+      let msg = errCopy(code);
+      if (e && e.detail && (code === "bad_request" || code === "upstream_error")) msg += ` (${String(e.detail).slice(0, 160)})`;
+      setMsg(msg, code === "cancelled" ? "" : "err");
     } finally {
       scan.busy = null;
       scan.ctl = null;
@@ -746,6 +790,14 @@ Reply with only JSON in this shape:
   function scanGate() {
     if (scan.state === "ready") return true;
     if (scan.state === "pending") setMsg("Photo scanning is still starting up. Try again in a few seconds.", "err");
+    else if (mode === "key" && (scan.offReason === "need_key" || scan.offReason === "bad_key")) {
+      const ks = $("#keyState");
+      ks.textContent = offCopy(); ks.className = "status err";
+      view = "setup"; render();
+      $("#keyBox").scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+      $("#keyIn").focus({ preventScroll: true });
+      return false;
+    }
     else setMsg(offCopy(), "err");
     render();
     return false;
@@ -754,6 +806,8 @@ Reply with only JSON in this shape:
     switch (scan.offReason) {
       case "outside": return "Photo scanning only works when this page is open inside Claude (claude.ai or the Claude app). Open the artifact link there, or tap Edit cards to score by hand.";
       case "no-sample": return "This view can't reach Claude, so photos can't be scanned. Open the page from claude.ai or an updated Claude app, or tap Edit cards to score by hand.";
+      case "need_key": return "Add your Anthropic API key first. It's under Photo scanning on this screen.";
+      case "bad_key": return "Anthropic didn't accept your API key. Paste a new one under Photo scanning on this screen.";
       case "no-images": return "This Claude app can't send photos yet. Try claude.ai in your phone's browser, or tap Edit cards to score by hand.";
       default: return errCopy(scan.offReason || "not_granted");
     }
@@ -812,9 +866,9 @@ Reply with only JSON in this shape:
     if (S.autoAdd) {
       commitRound();
       lastScan.committed = true;
-      setMsg(`Round ${S.history.length} added: ${summary}.${mismatch}`, mismatch ? "err" : "ok");
+      setMsg(`Round ${S.history.length} added: ${summary}.${localNote()}${mismatch}`, mismatch ? "err" : "ok");
     } else {
-      setMsg(`Scored from the photo: ${summary}. Tap Add round to totals when it looks right.${mismatch}`, mismatch ? "err" : "ok");
+      setMsg(`Scored from the photo: ${summary}.${localNote()} Tap Add round to totals when it looks right.${mismatch}`, mismatch ? "err" : "ok");
     }
     render();
   }
@@ -855,11 +909,494 @@ Reply with only JSON in this shape:
   $("#fixShift").addEventListener("click", () => { if (!lastScan) return; rvOffset++; rvAssign = defaultAssign(); applyScan(); });
   $("#fixMatch").addEventListener("click", () => { if (lastScan) openReview(); });
 
+  // ---------- direct Anthropic API (for GitHub Pages or any other website) ----------
+  function getKey() { try { return localStorage.getItem(API_KEY_STORE) || ""; } catch { return ""; } }
+  function setKey(k) { try { if (k) localStorage.setItem(API_KEY_STORE, k); else localStorage.removeItem(API_KEY_STORE); } catch {} }
+  function parseJSON(text) {
+    const t = String(text).replace(/```(?:json)?/gi, "").trim();
+    const a = t.search(/[\[{]/);
+    const b = Math.max(t.lastIndexOf("}"), t.lastIndexOf("]"));
+    if (a < 0 || b < a) throw { code: "invalid_json" };
+    try { return JSON.parse(t.slice(a, b + 1)); } catch { throw { code: "invalid_json" }; }
+  }
+  const apiSample = {
+    async json(prompt, { images, signal } = {}) {
+      const key = getKey();
+      if (!key) throw { code: "need_key" };
+      const type = images && images.type;
+      if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(type)) throw { code: "image_rejected" };
+      if (images.size > 5 * 1024 * 1024) throw { code: "too_big" };
+      const url = await toDataURL(images);
+      const data = url.slice(url.indexOf(",") + 1);
+      if (!data) throw { code: "image_rejected" };
+      let res;
+      try {
+        res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          signal,
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: API_MODEL,
+            max_tokens: 2000,
+            thinking: { type: "disabled" },
+            messages: [{ role: "user", content: [
+              { type: "image", source: { type: "base64", media_type: type, data } },
+              { type: "text", text: prompt },
+            ] }],
+          }),
+        });
+      } catch (err) {
+        if (signal && signal.aborted) throw { code: "cancelled" };
+        throw { code: "network" };
+      }
+      if (!res.ok) {
+        let detail = "";
+        try { const j = await res.json(); detail = (j && j.error && j.error.message) || ""; } catch {}
+        const st = res.status;
+        let code = "upstream_error";
+        if (st === 401 || st === 403) code = "bad_key";
+        else if (st === 429) code = "rate_limited";
+        else if (st === 413) code = "too_big";
+        else if (st === 529 || st >= 500) code = "overloaded";
+        else if (st === 400) code = /credit|billing|balance/i.test(detail) ? "no_credit" : /image/i.test(detail) ? "image_rejected" : "bad_request";
+        throw { code, detail };
+      }
+      const body = await res.json();
+      if (body.stop_reason === "refusal") throw { code: "refused" };
+      const text = (body.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      if (!text.trim()) throw { code: "empty_completion" };
+      return parseJSON(text);
+    },
+  };
+
+  // ---------- on-phone card reader (no key): Tesseract OCR ----------
+  const OCR = {
+    script: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js",
+    workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+    corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1",
+    langPath: "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+  };
+  let ocrWorkerP = null, ocrStatus = null;
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const t = document.createElement("script");
+      t.src = src;
+      t.onload = res;
+      t.onerror = () => rej({ code: "ocr_load" });
+      document.head.append(t);
+    });
+  }
+  function getOcr() {
+    if (!ocrWorkerP) {
+      ocrWorkerP = (async () => {
+        if (!window.Tesseract) await loadScript(OCR.script);
+        const w = await window.Tesseract.createWorker("eng", 1, {
+          workerPath: OCR.workerPath, corePath: OCR.corePath, langPath: OCR.langPath,
+          logger: (m) => {
+            if (ocrStatus && m && /loading|initializ/i.test(m.status || "") && m.progress < 1) ocrStatus("Setting up the card reader (first time only)…");
+          },
+        });
+        await w.setParameters({ tessedit_char_whitelist: "0123456789+xX", tessedit_pageseg_mode: "8" });
+        return w;
+      })().catch((e) => { ocrWorkerP = null; throw (e && e.code) ? e : { code: "ocr_load" }; });
+    }
+    return ocrWorkerP;
+  }
+  async function bitmapOf(blob) {
+    try { return await createImageBitmap(blob, { imageOrientation: "from-image" }); }
+    catch { throw { code: "image_rejected" }; }
+  }
+  function parseToken(text) {
+    const t = String(text || "").replace(/[^0-9+xX]/g, "");
+    if (/^[xX]2$/.test(t)) return { kind: "x2" };
+    const m = /^\+(\d{1,2})$/.exec(t);
+    if (m) return MODS.includes(Number(m[1])) ? { kind: "mod", value: Number(m[1]) } : null;
+    if (/^\d{1,2}$/.test(t)) {
+      const n = Number(t);
+      if (n <= 12 && !(t.length === 2 && t[0] === "0")) return { kind: "num", value: n };
+    }
+    return null;
+  }
+
+  // Step 1: find printed marks. Local thresholding keeps ink that is darker than its surroundings.
+  function findGlyphs(bmp, W, H) {
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(bmp, 0, 0, W, H);
+    const px = g.getImageData(0, 0, W, H).data;
+    const N = W * H;
+    const v = new Float32Array(N);
+    const raw = new Float32Array(N);
+    for (let i = 0, j = 0; i < N; i++, j += 4) raw[i] = 0.3 * px[j] + 0.55 * px[j + 1] + 0.15 * px[j + 2];
+    // Light 3x3 blur to calm camera noise.
+    const tmp = new Float32Array(N);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      tmp[i] = (raw[x > 0 ? i - 1 : i] + raw[i] + raw[x < W - 1 ? i + 1 : i]) / 3;
+    }
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      v[i] = (tmp[y > 0 ? i - W : i] + tmp[i] + tmp[y < H - 1 ? i + W : i]) / 3;
+    }
+    // Local paper brightness: the brightest value nearby, on a coarse grid, at two reaches.
+    // The near one lets a colored card be its own background; the far one fills in thick strokes.
+    const cell = Math.max(5, Math.round(Math.min(W, H) / 40));
+    const GW = Math.ceil(W / cell), GH = Math.ceil(H / cell);
+    const cmax = new Float32Array(GW * GH);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const gi = ((y / cell) | 0) * GW + ((x / cell) | 0);
+      if (v[y * W + x] > cmax[gi]) cmax[gi] = v[y * W + x];
+    }
+    const spread = (R) => {
+      const out = new Float32Array(GW * GH);
+      for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
+        let m = 0;
+        for (let yy = Math.max(0, gy - R); yy <= Math.min(GH - 1, gy + R); yy++)
+          for (let xx = Math.max(0, gx - R); xx <= Math.min(GW - 1, gx + R); xx++)
+            if (cmax[yy * GW + xx] > m) m = cmax[yy * GW + xx];
+        out[gy * GW + gx] = m;
+      }
+      return out;
+    };
+    const near = spread(1), far = spread(5);
+    const dark = new Uint8Array(N);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const gi = ((y / cell) | 0) * GW + ((x / cell) | 0);
+      const val = v[y * W + x];
+      const bn = near[gi], bf = far[gi];
+      if ((val < bn * 0.76 && bn - val > 40) || (val < bf * 0.5 && bf - val > 90)) dark[y * W + x] = 1;
+    }
+    // Thin away 1-pixel bridges so numbers don't fuse with card edges.
+    const ink = new Uint8Array(N);
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      if (dark[i] && dark[i - 1] && dark[i + 1] && dark[i - W] && dark[i + W]) ink[i] = 1;
+    }
+    // Connected marks.
+    const label = new Int32Array(N);
+    const stack = new Int32Array(N);
+    const comps = [];
+    const minSide = Math.min(W, H);
+    for (let start = 0; start < N; start++) {
+      if (!ink[start] || label[start]) continue;
+      const id = comps.length + 1;
+      let sp = 0, count = 0, x0 = W, y0 = H, x1 = 0, y1 = 0;
+      stack[sp++] = start; label[start] = id;
+      while (sp) {
+        const k = stack[--sp];
+        const x = k % W, y = (k - x) / W;
+        count++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= W) continue;
+            const nk = ny * W + nx;
+            if (ink[nk] && !label[nk]) { label[nk] = id; stack[sp++] = nk; }
+          }
+        }
+      }
+      const w = x1 - x0 + 1, h = y1 - y0 + 1, size = Math.max(w, h);
+      const fill = count / (w * h), aspect = Math.min(w, h) / size;
+      const ok = size >= minSide * 0.015 && size <= minSide * 0.4 && fill >= 0.12 && fill <= 0.9 && aspect >= 0.12;
+      comps.push(ok ? { id, x0, y0, x1, y1, w, h, size, plus: false } : null);
+    }
+    let glyphs = comps.filter(Boolean);
+    // Spot plus signs: ink along the middle row and column, empty corners.
+    for (const q of glyphs) {
+      if (q.w / q.h < 0.7 || q.w / q.h > 1.4) continue;
+      const cw = Math.max(1, Math.floor(q.w * 0.3)), ch = Math.max(1, Math.floor(q.h * 0.3));
+      let corner = 0, cornerN = 0;
+      for (const [ox, oy] of [[q.x0, q.y0], [q.x1 - cw + 1, q.y0], [q.x0, q.y1 - ch + 1], [q.x1 - cw + 1, q.y1 - ch + 1]])
+        for (let y = oy; y < oy + ch; y++) for (let x = ox; x < ox + cw; x++) { cornerN++; if (label[y * W + x] === q.id) corner++; }
+      const my = (q.y0 + q.y1) >> 1, mx = (q.x0 + q.x1) >> 1;
+      let mid = 0, midN = 0;
+      for (let x = q.x0; x <= q.x1; x++) { midN++; if (label[my * W + x] === q.id) mid++; }
+      for (let y = q.y0; y <= q.y1; y++) { midN++; if (label[y * W + mx] === q.id) mid++; }
+      q.plus = corner / cornerN < 0.06 && mid / midN > 0.8;
+    }
+    const sizes = glyphs.map((q) => q.size).sort((p, q) => p - q);
+    const ref = sizes.length ? sizes[Math.floor((sizes.length - 1) * 0.85)] : 0;
+    // Drop small corner numbers; plus signs are often printed smaller, so they get more room.
+    glyphs = glyphs.filter((q) => q.size >= ref * (q.plus ? 0.2 : 0.4));
+    return { glyphs, label };
+  }
+
+  // Step 2: join marks that sit side by side (like the 1 and 2 in 12) into tokens.
+  function joinGlyphs(glyphs) {
+    const parent = glyphs.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    // Gap between two marks if they sit side by side or stacked; Infinity otherwise.
+    const gapOf = (a, b) => {
+      if (Math.max(a.size, b.size) / Math.min(a.size, b.size) > 2.3) return Infinity;
+      const gapX = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1);
+      const gapY = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1);
+      if (gapX >= -2 && -gapY >= Math.min(a.h, b.h) * 0.5) return Math.max(0, gapX);
+      if (gapY >= -2 && -gapX >= Math.min(a.w, b.w) * 0.5) return Math.max(0, gapY);
+      return Infinity;
+    };
+    for (let i = 0; i < glyphs.length; i++) for (let j = i + 1; j < glyphs.length; j++) {
+      const a = glyphs[i], b = glyphs[j];
+      if (a.plus || b.plus) continue;
+      if (gapOf(a, b) <= Math.max(a.size, b.size) * 0.3) parent[find(i)] = find(j);
+    }
+    // A plus sign joins the single closest mark (its own number), allowing a wider gap.
+    glyphs.forEach((a, i) => {
+      if (!a.plus) return;
+      let bj = -1, bd = Infinity;
+      glyphs.forEach((b, j) => {
+        if (j === i || b.plus) return;
+        const d = gapOf(a, b);
+        if (d < bd) { bd = d; bj = j; }
+      });
+      if (bj >= 0 && bd <= Math.max(a.size, glyphs[bj].size) * 0.6) parent[find(i)] = find(bj);
+    });
+    const byRoot = new Map();
+    glyphs.forEach((q, i) => { const r0 = find(i); if (!byRoot.has(r0)) byRoot.set(r0, []); byRoot.get(r0).push(q); });
+    return [...byRoot.values()].map((members) => {
+      const x0 = Math.min(...members.map((q) => q.x0)), y0 = Math.min(...members.map((q) => q.y0));
+      const x1 = Math.max(...members.map((q) => q.x1)), y1 = Math.max(...members.map((q) => q.y1));
+      return { members, x0, y0, x1, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, size: Math.max(...members.map((q) => q.size)) };
+    });
+  }
+
+  // Draws one token as clean black marks on white, scaled and rotated for OCR.
+  function tokenCanvas(tok, members, label, W, turns) {
+    const ids = new Set(members.map((q) => q.id));
+    const x0 = Math.min(...members.map((q) => q.x0)), y0 = Math.min(...members.map((q) => q.y0));
+    const x1 = Math.max(...members.map((q) => q.x1)), y1 = Math.max(...members.map((q) => q.y1));
+    const k = 64 / Math.max(...members.map((q) => q.size));
+    const pad = 24;
+    const bw = Math.max(1, Math.round((x1 - x0 + 1) * k)), bh = Math.max(1, Math.round((y1 - y0 + 1) * k));
+    const src = document.createElement("canvas");
+    src.width = bw + pad * 2; src.height = bh + pad * 2;
+    const g = src.getContext("2d");
+    const im = g.createImageData(src.width, src.height);
+    const d = im.data;
+    d.fill(255);
+    for (let y = 0; y < bh; y++) {
+      const sy = y0 + Math.min(y1 - y0, Math.floor(y / k));
+      for (let x = 0; x < bw; x++) {
+        const sx = x0 + Math.min(x1 - x0, Math.floor(x / k));
+        if (ids.has(label[sy * W + sx])) {
+          const o = ((y + pad) * src.width + x + pad) * 4;
+          d[o] = d[o + 1] = d[o + 2] = 0;
+        }
+      }
+    }
+    g.putImageData(im, 0, 0);
+    if (!turns) return src;
+    const c = document.createElement("canvas");
+    const side = turns % 2 === 1;
+    c.width = side ? src.height : src.width;
+    c.height = side ? src.width : src.height;
+    const cg = c.getContext("2d");
+    cg.fillStyle = "#fff";
+    cg.fillRect(0, 0, c.width, c.height);
+    cg.translate(c.width / 2, c.height / 2);
+    cg.rotate(turns * Math.PI / 2);
+    cg.drawImage(src, -src.width / 2, -src.height / 2);
+    return c;
+  }
+  async function readCanvas(worker, canvas) {
+    const { data } = await worker.recognize(canvas);
+    const tok = parseToken((data.text || "").trim());
+    if (!tok) return null;
+    const words = (data.words || []).filter((w) => w.text && w.text.trim());
+    const conf = words.length ? Math.min(...words.map((w) => Number(w.confidence) || 0)) : Number(data.confidence) || 0;
+    return conf >= 30 ? { ...tok, conf } : null;
+  }
+  // Reads a token in all four orientations. If it doesn't read as one card, it may be marks from
+  // neighboring cards run together, so try splitting it into runs and keep the cleanest split.
+  async function readToken(worker, tok, label, W) {
+    const cache = new Map();
+    const readRun = async (ms) => {
+      const key = ms.map((m) => m.id).join(",");
+      if (!cache.has(key)) {
+        const r = [];
+        for (let t = 0; t < 4; t++) r.push(await readCanvas(worker, tokenCanvas(tok, ms, label, W, t)));
+        cache.set(key, r);
+      }
+      return cache.get(key);
+    };
+    const whole = await readRun(tok.members);
+    if (whole.some(Boolean) || tok.members.length < 2) return [whole];
+    const wide = tok.x1 - tok.x0 >= tok.y1 - tok.y0;
+    const ms = [...tok.members].sort((a, b) => (wide ? a.x0 - b.x0 : a.y0 - b.y0)).slice(0, 5);
+    let best = null;
+    for (let mask = 1; mask < 1 << (ms.length - 1); mask++) {
+      const runs = [];
+      let cur = [ms[0]];
+      for (let i = 1; i < ms.length; i++) {
+        if (mask & (1 << (i - 1))) { runs.push(cur); cur = []; }
+        cur.push(ms[i]);
+      }
+      runs.push(cur);
+      const reads = [];
+      let ok = true, confSum = 0;
+      for (const run of runs) {
+        const r = await readRun(run);
+        const top = Math.max(0, ...r.filter(Boolean).map((x) => x.conf));
+        if (!top) { ok = false; break; }
+        confSum += top;
+        reads.push(r);
+      }
+      if (!ok) continue;
+      const avg = confSum / runs.length;
+      if (!best || avg > best.avg + 5 || (Math.abs(avg - best.avg) <= 5 && runs.length < best.reads.length)) best = { avg, reads };
+    }
+    return best ? best.reads : [];
+  }
+
+  // Groups tokens that sit near each other into hands, ordered clockwise from the bottom of the photo.
+  function groupHands(tokens, players, W, H) {
+    if (!tokens.length) return [];
+    const med = tokens.map((c) => c.size).sort((a, b) => a - b)[Math.floor(tokens.length / 2)] || 20;
+    const reach = med * 3.2;
+    const groups = tokens.map((c) => [c]);
+    const gap = (A, B) => {
+      let best = Infinity;
+      for (const a of A) for (const b of B) best = Math.min(best, Math.hypot(a.cx - b.cx, a.cy - b.cy));
+      return best;
+    };
+    const target = Math.max(1, players);
+    for (;;) {
+      let bi = -1, bj = -1, bd = Infinity;
+      for (let i = 0; i < groups.length; i++) for (let j = i + 1; j < groups.length; j++) {
+        const d = gap(groups[i], groups[j]);
+        if (d < bd) { bd = d; bi = i; bj = j; }
+      }
+      if (bi < 0 || (bd > reach && groups.length <= target)) break;
+      groups[bi] = groups[bi].concat(groups[bj]);
+      groups.splice(bj, 1);
+    }
+    const centers = groups.map((gr) => [gr.reduce((t, c) => t + c.cx, 0) / gr.length, gr.reduce((t, c) => t + c.cy, 0) / gr.length]);
+    const xs = centers.map((q) => q[0]), ys = centers.map((q) => q[1]);
+    const mx = groups.length > 1 ? (Math.min(...xs) + Math.max(...xs)) / 2 : W / 2;
+    const my = groups.length > 1 ? (Math.min(...ys) + Math.max(...ys)) / 2 : H / 2;
+    const name = (gx, gy) => {
+      const vv = gy > H * 0.62 ? "bottom" : gy < H * 0.38 ? "top" : "";
+      const hh = gx < W * 0.38 ? "left" : gx > W * 0.62 ? "right" : "";
+      return [vv, hh].filter(Boolean).join(" ") || "center";
+    };
+    const TAU = 2 * Math.PI;
+    const wrap = (a) => ((a % TAU) + TAU) % TAU;
+    const out = groups.map((gr, i) => {
+      const [gx, gy] = centers[i];
+      return { ang: Math.atan2(gy - my, gx - mx), tokens: gr, position: name(gx, gy) };
+    });
+    // Start from the hand nearest straight-down (the photographer's), then go clockwise.
+    const first = out.reduce((b, g) => (Math.abs(wrap(g.ang - Math.PI / 2 + Math.PI) - Math.PI) < Math.abs(wrap(b.ang - Math.PI / 2 + Math.PI) - Math.PI) ? g : b), out[0]);
+    return out.sort((a, b) => wrap(a.ang - first.ang) - wrap(b.ang - first.ang));
+  }
+
+  async function readPhoto(blob, kind, players, signal, say) {
+    const bmp = await bitmapOf(blob);
+    const k = Math.min(1, 1400 / Math.max(bmp.width, bmp.height));
+    const W = Math.round(bmp.width * k), H = Math.round(bmp.height * k);
+    say("Starting the card reader…");
+    const worker = await getOcr();
+    say("Finding cards in the photo…");
+    await new Promise((r) => setTimeout(r, 30));
+    const { glyphs, label } = findGlyphs(bmp, W, H);
+    if (bmp.close) bmp.close();
+    const tokens = joinGlyphs(glyphs).slice(0, 60);
+    const groups = kind === "hand"
+      ? [{ tokens, position: "" }]
+      : groupHands(tokens, players, W, H);
+    const total = tokens.length;
+    let done = 0;
+    const hands = [];
+    for (const grp of groups) {
+      // Read each token in all four orientations; the hand's cards all face the same way,
+      // so the orientation that reads best overall wins (this keeps 6 and 9 apart).
+      const reads = [];
+      for (const tok of grp.tokens) {
+        if (signal && signal.aborted) throw { code: "cancelled" };
+        say(`Reading cards on this phone (${++done} of ${total})…`);
+        for (const r of await readToken(worker, tok, label, W)) reads.push({ r, size: tok.size });
+      }
+      const score = [0, 1, 2, 3].map((t) => reads.reduce((acc, x) => acc + (x.r[t] ? x.r[t].conf : 0), 0));
+      const best = score.indexOf(Math.max(...score));
+      const medSize = reads.map((x) => x.size).sort((a, b) => a - b)[reads.length >> 1] || 0;
+      const cards = [];
+      for (const { r, size } of reads) {
+        let pick = r[best];
+        // A mark that only reads when turned a different way from the rest of the hand is
+        // usually a stray line, so keep it only if it's a clear, full-size read.
+        if (!pick) {
+          const alt = r.filter(Boolean).sort((a, b) => b.conf - a.conf)[0];
+          if (alt && alt.conf >= 90 && size >= medSize * 0.7) pick = alt;
+        }
+        if (pick) cards.push(pick);
+      }
+      hands.push({
+        position: grp.position,
+        label: null,
+        numbers: cards.filter((c) => c.kind === "num").map((c) => c.value),
+        modifiers: cards.filter((c) => c.kind === "mod").map((c) => c.value),
+        times_two: cards.some((c) => c.kind === "x2"),
+        busted: false,
+      });
+    }
+    if (signal && signal.aborted) throw { code: "cancelled" };
+    return hands;
+  }
+  const localSample = {
+    async json(prompt, { images, signal, kind, players, onStatus } = {}) {
+      ocrStatus = onStatus || null;
+      const say = (m) => { if (ocrStatus) ocrStatus(m); };
+      try {
+        const hands = await readPhoto(images, kind, players || 1, signal, say);
+        if (kind === "hand") return hands[0] || { numbers: [], modifiers: [], times_two: false, busted: false };
+        return { hands };
+      } finally {
+        ocrStatus = null;
+      }
+    },
+  };
+  function useKeyMode() {
+    mode = "key";
+    sample = { json: (prompt, opts) => (getKey() ? apiSample : localSample).json(prompt, opts) };
+    maxBytes = Infinity;
+    scan.state = "ready";
+    scan.offReason = null;
+  }
+  $("#keySave").addEventListener("click", () => {
+    const input = $("#keyIn");
+    const k = input.value.trim();
+    const ks = $("#keyState");
+    if (!k) { input.focus(); return; }
+    if (!/^sk-ant-/.test(k)) { ks.textContent = "That doesn't look like an Anthropic API key. It should start with sk-ant-."; ks.className = "status err"; return; }
+    setKey(k);
+    input.value = "";
+    scan.state = "ready"; scan.offReason = null;
+    setMsg("", "");
+    render();
+  });
+  $("#keyIn").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#keySave").click(); } });
+  $("#keyRemove").addEventListener("click", () => {
+    setKey("");
+    scan.state = "ready"; scan.offReason = null;
+    $("#keyState").textContent = "Key removed. Photos will be read on this phone.";
+    $("#keyState").className = "status";
+    render();
+  });
+
   // ---------- start ----------
   render();
   (async () => {
+    if (!window.claude || typeof window.claude.use !== "function") { useKeyMode(); render(); return; }
+    mode = "claude";
     try {
-      if (!window.claude || typeof window.claude.use !== "function") throw "outside";
       sample = await window.claude.use("sample");
       if (!sample) throw "no-sample";
       const lim = await sample.limits().catch(() => null);
